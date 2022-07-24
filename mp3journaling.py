@@ -36,7 +36,7 @@ IMPORTANT_THOUGHT_LONG_TIME = 600
 TimeInterval = namedtuple('TimeInterval', ['start', 'end', 'type'])
 
 def read_track_markers(filename: Path) -> list:
-    """This functions open the TRM file linked to the MP3 and returns
+    """This functions open the TMK file linked to the MP3 and returns
        all the track marker in it in a list of timestamps"""
     with open(filename, 'r', encoding="ASCII") as track_marker_file:
         lines = track_marker_file.readlines()
@@ -105,7 +105,7 @@ def get_windows(track_marks, interval=30):
     return windows
 
 def find_track_mark_pattern(track_marks, maxTimeInterval=30):
-    """This function finds the track markers pattern in the TRM file.
+    """This function finds the track markers pattern in the TMK file.
        List of possible patterns:
        1. T: marks the last X minutes as important
        2. TT: marks the last Y minutes as important
@@ -149,8 +149,8 @@ def find_track_mark_pattern(track_marks, maxTimeInterval=30):
 
 
 if __name__ == '__main__':
-    # Get all mp3 files in the current directory and tuple them with their according TRM file
-    recordings = zip(list(Path.cwd().glob('*.mp3')), list(Path.cwd().glob('*.trm')))
+    # Get all mp3 files in the current directory and tuple them with their according TMK file
+    recordings = zip(list(Path.cwd().glob('*.mp3')), list(Path.cwd().glob('*.tmk')))
     for recording in recordings:
         pprint(find_track_mark_pattern([ "[00000:01.00]",
                                      "[00000:02.00]",

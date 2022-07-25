@@ -67,6 +67,14 @@ def track_mark_to_seconds(track_mark):
     """This function converts a track mark to seconds"""
     return float(track_mark[1:6]) * 60 + float(track_mark[7:12])
 
+def seconds_to_track_marker(seconds):
+    """This function converts seconds to a track marker"""
+    minutes = int(seconds // 60)
+    seconds = seconds % 60
+    m_str = f"{minutes:05}"
+    s_str = f"{seconds:05.2f}"
+    return f"[{m_str}:{s_str}]"
+
 def get_windows(track_marks, interval=30):
     """This function returns a list of the number of track marks
        within the window of width INTERVAL"""
@@ -171,17 +179,53 @@ def concatenate_audio_files(audio_file_paths: List[Path], output_path: Path, ver
     if verbose > 0:
         print("Audio files concatenated.")
 
-def search_and_combine_recordings(path):
+def concatenate_track_marker_files(track_markers_paths: List[Path], output_path: Path, verbose=1):
+    """This functions concatenates multiple track marker files in a single using pydub"""
+    if verbose > 0:
+        print("Concatenating track marker files...")
+        track_markers_paths = tqdm(track_markers_paths)
+    # Create the output file
+    total_time = 0
+    prev_track_marker = ""
+    first_file = True
+    with open(output_path, "w", encoding="ASCII") as output_file:
+        for track_markers_path in track_markers_paths:
+            # Add the track marker from each file in the new track marker file
+            with open(track_markers_path, 'r', encoding="ASCII") as track_markers_file:
+                if first_file:
+                    first_file = False
+                    output_file.write(track_markers_file.read() + '\n')
+                else:
+                    # Calculate interval between previous file and this one
+                    # first_track_marker = track_markers_file.readline()
+                    # interval = track_mark_interval_to_seconds(prev_track_marker, first_track_marker)
+
+                    # Add total time to every track marker of this file
+                    track_markers_file.seek(0)
+                    for track_marker_line in track_markers_file:
+                        # New track marker
+                        track_mark_seconds = track_mark_to_seconds(track_marker_line.strip())
+                        new_track_mark_seconds = track_mark_seconds + total_time
+                        new_track_mark_line = seconds_to_track_marker(new_track_mark_seconds)
+                        output_file.write(new_track_mark_line + "\n")
+                # Get last line to add it to the total time
+                track_markers_file.seek(0)
+                prev_track_marker = track_markers_file.readlines()[-1]
+                total_time += track_mark_to_seconds(prev_track_marker.strip())
+    if verbose > 0:
+        print("Track marker files concatenated.")
+
+def search_and_combine_recordings(path: Path):
     """Returns a list containing all the recording in a folder.
        If some recordings are segmented, their .mp3 and .tmk are combined in lists"""
     file_pairs = defaultdict(lambda: defaultdict(list))
-    files = os.listdir(path)
     # Group .mp3 and .tmk that have the same filename suffix together
-    for file in files:
-        m = re.search(r"([^_])+_+[^_]+_", file)
-        if m:
-            _, file_extension = os.path.splitext(file)
-            file_pairs[m.group(0)[0]][file_extension].append(file)
+    for entry in path.iterdir():
+        if entry.is_file:
+            match = re.search(r"([^_])+_+[^_]+_", entry.name)
+            if match:
+                _, file_extension = os.path.splitext(entry.name)
+                file_pairs[match.group(0)[0]][file_extension].append(entry)
     # Combine the recordings
     recordings = []
     for value in file_pairs.values():
@@ -192,7 +236,7 @@ def search_and_combine_recordings(path):
 if __name__ == '__main__':
     # Get all mp3 files in the current directory and tuple them with their according TMK file
     recordings = [Record(*recording) for recording in zip(list(Path.cwd().glob('*.mp3')), list(Path.cwd().glob('*.tmk')))]
-    print(search_and_combine_recordings(Path.cwd()))
+    pprint(search_and_combine_recordings(Path.cwd()))
     # for recording in recordings:
     #     pprint(find_track_mark_pattern([ "[00000:01.00]",
     #                                  "[00000:02.00]",
@@ -214,3 +258,5 @@ if __name__ == '__main__':
 
     # mp3s = [Path.cwd().joinpath("sample4.mp3"), Path.cwd().joinpath("sample5.mp3")]
     # concatenate_audio_files(mp3s, Path.cwd().joinpath("test_concatenated.mp3"))
+    tmks = [Path.cwd().joinpath("test1.tmk"), Path.cwd().joinpath("test2.tmk")]
+    concatenate_track_marker_files(tmks, Path.cwd().joinpath("test_concatenated.tmk"))

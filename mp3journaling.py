@@ -1,9 +1,18 @@
 """This module implements function to split an MP3 recording in multiple
    parts based on different track marker patterns."""
+from curses.ascii import isalpha
 from pathlib import Path
-from collections import namedtuple
+import os
+from collections import namedtuple, defaultdict
 from enum import Enum
 from pprint import pprint
+import re
+from typing import List
+from tqdm import tqdm
+from pydub import AudioSegment
+
+# Recording contain the mp3 path and the track marker file path
+Record = namedtuple('Recording', ['mp3_file', 'track_marker_file'])
 
 # Track mark patterns
 Pattern = Enum('Pattern', ["IMPORTANT_THOUGHT",
@@ -147,25 +156,61 @@ def find_track_mark_pattern(track_marks, maxTimeInterval=30):
         index += PatternSkips[window.name]
     return time_intervals
 
+def concatenate_audio_files(audio_file_paths: List[Path], output_path: Path, verbose=1):
+    """This functions concatenates multiple audio files in a single using pydub"""
+    if verbose > 0:
+        print("Concatenating audio files...")
+        audio_file_paths = tqdm(audio_file_paths)
+    # Create the output file
+    output_file = AudioSegment.empty()
+    for audio_file_path in audio_file_paths:
+        # Add the audio file to the output file
+        output_file += AudioSegment.from_file(audio_file_path)
+    # Save the output file
+    output_file.export(output_path, format="mp3")
+    if verbose > 0:
+        print("Audio files concatenated.")
+
+def search_and_combine_recordings(path):
+    """Returns a list containing all the recording in a folder.
+       If some recordings are segmented, their .mp3 and .tmk are combined in lists"""
+    file_pairs = defaultdict(lambda: defaultdict(list))
+    files = os.listdir(path)
+    # Group .mp3 and .tmk that have the same filename suffix together
+    for file in files:
+        m = re.search(r"([^_])+_+[^_]+_", file)
+        if m:
+            _, file_extension = os.path.splitext(file)
+            file_pairs[m.group(0)[0]][file_extension].append(file)
+    # Combine the recordings
+    recordings = []
+    for value in file_pairs.values():
+        recordings.append(Record(value[".mp3"], value[".tmk"]))
+    return recordings
+
 
 if __name__ == '__main__':
     # Get all mp3 files in the current directory and tuple them with their according TMK file
-    recordings = zip(list(Path.cwd().glob('*.mp3')), list(Path.cwd().glob('*.tmk')))
-    for recording in recordings:
-        pprint(find_track_mark_pattern([ "[00000:01.00]",
-                                     "[00000:02.00]",
-                                     "[00000:03.00]",
-                                     "[00000:10.00]",
-                                     "[00000:11.00]",
-                                     "[00000:45.00]",
-                                     "[00000:47.00]",
-                                     "[00002:08.00]",
-                                     "[00002:09.00]",
-                                     "[00002:10.00]",
-                                     "[00002:11.00]",
-                                     "[00002:30.00]",
-                                     "[00010:30.00]",
-                                     "[00012:30.00]",
-                                     "[00012:31.00]",
-                                     "[00012:32.00]",
-                                     "[00013:30.00]",]))
+    recordings = [Record(*recording) for recording in zip(list(Path.cwd().glob('*.mp3')), list(Path.cwd().glob('*.tmk')))]
+    print(search_and_combine_recordings(Path.cwd()))
+    # for recording in recordings:
+    #     pprint(find_track_mark_pattern([ "[00000:01.00]",
+    #                                  "[00000:02.00]",
+    #                                  "[00000:03.00]",
+    #                                  "[00000:10.00]",
+    #                                  "[00000:11.00]",
+    #                                  "[00000:45.00]",
+    #                                  "[00000:47.00]",
+    #                                  "[00002:08.00]",
+    #                                  "[00002:09.00]",
+    #                                  "[00002:10.00]",
+    #                                  "[00002:11.00]",
+    #                                  "[00002:30.00]",
+    #                                  "[00010:30.00]",
+    #                                  "[00012:30.00]",
+    #                                  "[00012:31.00]",
+    #                                  "[00012:32.00]",
+    #                                  "[00013:30.00]",]))
+
+    # mp3s = [Path.cwd().joinpath("sample4.mp3"), Path.cwd().joinpath("sample5.mp3")]
+    # concatenate_audio_files(mp3s, Path.cwd().joinpath("test_concatenated.mp3"))

@@ -12,7 +12,7 @@ from tqdm import tqdm
 from pydub import AudioSegment
 
 # Recording contain the mp3 path and the track marker file path
-Record = namedtuple('Recording', ['mp3_file', 'track_marker_file'])
+Record = namedtuple('Recording', ['record_name', 'mp3_files', 'tmk_files'])
 
 # Track mark patterns
 Pattern = Enum('Pattern', ["IMPORTANT_THOUGHT",
@@ -217,7 +217,7 @@ def concatenate_track_marker_files(track_markers_paths: List[Path], output_path:
 
 def search_and_combine_recordings(path: Path):
     """Returns a list containing all the recording in a folder.
-       If some recordings are segmented, their .mp3 and .tmk are combined in lists"""
+       If some recordings are segmented, their .mp3 and .tmk are combined together"""
     file_pairs = defaultdict(lambda: defaultdict(list))
     # Group .mp3 and .tmk that have the same filename suffix together
     for entry in path.iterdir():
@@ -228,15 +228,22 @@ def search_and_combine_recordings(path: Path):
                 file_pairs[match.group(0)[0]][file_extension].append(entry)
     # Combine the recordings
     recordings = []
-    for value in file_pairs.values():
-        recordings.append(Record(value[".mp3"], value[".tmk"]))
-    return recordings
+    for key, value in file_pairs.items():
+        recordings.append(Record(record_name=key, mp3_files=value[".mp3"], tmk_files=value[".tmk"]))
+
+    # For each recording, merge the .mp3 and .tmk files
+    for recording in recordings:
+        # New record name
+        new_mp3_path = path.joinpath(recording.record_name + "_merged" + ".mp3")
+        new_tmk_path = path.joinpath(recording.record_name + "_merged" + ".tmk")
+        concatenate_audio_files(recording.mp3_files, new_mp3_path)
+        concatenate_track_marker_files(recording.tmk_files, new_tmk_path)
 
 
 if __name__ == '__main__':
     # Get all mp3 files in the current directory and tuple them with their according TMK file
-    recordings = [Record(*recording) for recording in zip(list(Path.cwd().glob('*.mp3')), list(Path.cwd().glob('*.tmk')))]
-    pprint(search_and_combine_recordings(Path.cwd()))
+    # recordings = [Record(*recording) for recording in zip(list(Path.cwd().glob('*.mp3')), list(Path.cwd().glob('*.tmk')))]
+    search_and_combine_recordings(Path.cwd())
     # for recording in recordings:
     #     pprint(find_track_mark_pattern([ "[00000:01.00]",
     #                                  "[00000:02.00]",
@@ -258,5 +265,5 @@ if __name__ == '__main__':
 
     # mp3s = [Path.cwd().joinpath("sample4.mp3"), Path.cwd().joinpath("sample5.mp3")]
     # concatenate_audio_files(mp3s, Path.cwd().joinpath("test_concatenated.mp3"))
-    tmks = [Path.cwd().joinpath("test1.tmk"), Path.cwd().joinpath("test2.tmk")]
-    concatenate_track_marker_files(tmks, Path.cwd().joinpath("test_concatenated.tmk"))
+    # tmks = [Path.cwd().joinpath("test1.tmk"), Path.cwd().joinpath("test2.tmk")]
+    # concatenate_track_marker_files(tmks, Path.cwd().joinpath("test_concatenated.tmk"))

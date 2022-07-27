@@ -13,6 +13,7 @@ from tqdm import tqdm
 from pydub import AudioSegment
 import subprocess
 import eyed3
+from datetime import datetime
 
 # Recording contain the mp3 path and the track marker file path
 SegmentedRecord = namedtuple('SegmentedRecord', ['record_name', 'mp3_files', 'tmk_files'])
@@ -238,9 +239,17 @@ def search_and_combine_recordings(path: Path):
     # For each recording, merge the .mp3 and .tmk files
     final_records = []
     for record in temp_records:
+        # Sort the files, even if there is only one recording
+        # (have to do it here to avoid having the name section in both branch)
+        record.mp3_files.sort(key=lambda x: x.name)
+        record.tmk_files.sort(key=lambda x: x.name)
+        # Get first mp3 creation date and time using pathlib
+        first_mp3_creation_time = record.mp3_files[0].stat().st_birthtime
+        creation_time_datetime = datetime.fromtimestamp(first_mp3_creation_time)
+        datetime_formatted = creation_time_datetime.strftime("%Y-%m-%d@%Hh%Mm%Ss")
         # New record name
-        new_mp3_path = path.joinpath(record.record_name + "_merged" + ".mp3")
-        new_tmk_path = path.joinpath(record.record_name + "_merged" + ".tmk")
+        new_mp3_path = path.joinpath(datetime_formatted + "_merged" + ".mp3")
+        new_tmk_path = path.joinpath(datetime_formatted + "_merged" + ".tmk")
         # Check if it is segmented or not
         if len(record.mp3_files) > 1:
             # Sort the files so they are merged in the correct order
@@ -285,7 +294,15 @@ def split_audio_file_into_segments(record, track_marks_patterns):
         index_of_types[segment_type] += 1
         # Create new mp3 segment using ffmpeg subprocess
         timestamps = [track_mark_to_ffmpeg_timestamps(track_mark_seconds) for track_mark_seconds in track_marks_pattern[0:2]]
-        output_file_name = record.mp3_file.parent.joinpath(record.record_name + "_" + segment_type.name + "_" + str(index_of_types[segment_type]) + ".mp3")
+        # Create datetime formated name for the segment based on when that segment happened
+        mp3_timestamp = datetime.strptime(record.mp3_file.name.split("_")[0], "%Y-%m-%d@%Hh%Mm%Ss").timestamp()
+        segment_timestamp = mp3_timestamp + track_marks_pattern[0]
+        segment_datetime = datetime.fromtimestamp(segment_timestamp)
+        segment_datetime_formatted = segment_datetime.strftime("%Y-%m-%d@%Hh%Mm%Ss")
+        segment_filename = segment_datetime_formatted + "_" + segment_type.name + "_" + str(index_of_types[segment_type]) + ".mp3"
+        output_file_name = record.mp3_file.parent.joinpath(segment_type.name).joinpath(segment_filename)
+        # Create output directory if it doesn't exist
+        output_file_name.parent.mkdir(parents=True, exist_ok=True)
         subprocess.run(["ffmpeg", "-i", record.mp3_file.resolve(), "-ss", timestamps[0], "-to", timestamps[1], "-acodec", "copy", output_file_name.resolve()], check=True)
 
 def track_mark_to_ffmpeg_timestamps(track_mark_seconds):
@@ -326,3 +343,8 @@ if __name__ == '__main__':
     recordings = search_and_combine_recordings(Path.cwd().joinpath("Real test").joinpath("23 Jul 2022"))
     for recording in recordings:
         split_audio_based_on_track_marks_pattern(recording)
+        # Delete the merged mp3 file
+        recording.mp3_file.unlink(missing_ok=True)
+        recording.tmk_file.unlink(missing_ok=True)
+
+    print("Operation completed!")

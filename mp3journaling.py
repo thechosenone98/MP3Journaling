@@ -285,7 +285,7 @@ def split_audio_file_into_segments(record, track_marks_patterns):
         index_of_types[segment_type] += 1
         # Create new mp3 segment using ffmpeg subprocess
         timestamps = [track_mark_to_ffmpeg_timestamps(track_mark_seconds) for track_mark_seconds in track_marks_pattern[0:2]]
-        output_file_name = record.mp3_file.parent.joinpath(record.record_name + "_" + segment_type.name + str(index_of_types[segment_type]) + ".mp3")
+        output_file_name = record.mp3_file.parent.joinpath(record.record_name + "_" + segment_type.name + "_" + str(index_of_types[segment_type]) + ".mp3")
         subprocess.run(["ffmpeg", "-i", record.mp3_file.resolve(), "-ss", timestamps[0], "-to", timestamps[1], "-acodec", "copy", output_file_name.resolve()], check=True)
 
 def track_mark_to_ffmpeg_timestamps(track_mark_seconds):

@@ -2,3 +2,4 @@
 *.tmk
 .vscode
 Real\ test
+.DS_Store

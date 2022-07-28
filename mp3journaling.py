@@ -293,9 +293,12 @@ def split_audio_file_into_segments(record, track_marks_patterns):
         mp3_timestamp = datetime.strptime(record.mp3_file.name.split("_")[0], "%Y-%m-%d@%Hh%Mm%Ss").timestamp()
         segment_timestamp = mp3_timestamp + track_marks_pattern[0]
         segment_datetime = datetime.fromtimestamp(segment_timestamp)
+        # String representing the date of the recording of the segment
+        recording_date_formatted = segment_datetime.strftime("%Y-%m-%d")
+        # String representing the date and time at which the segment starts
         segment_datetime_formatted = segment_datetime.strftime("%Y-%m-%d@%Hh%Mm%Ss")
         segment_filename = segment_datetime_formatted + "_" + segment_type.name + "_" + str(index_of_types[segment_type]) + ".mp3"
-        output_file_name = record.mp3_file.parent.joinpath(segment_type.name).joinpath(segment_filename)
+        output_file_name = record.mp3_file.parent.joinpath(recording_date_formatted).joinpath(segment_type.name).joinpath(segment_filename)
 
         # Create output directory if it doesn't exist
         output_file_name.parent.mkdir(parents=True, exist_ok=True)

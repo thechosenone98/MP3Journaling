@@ -1,16 +1,13 @@
 """This module implements function to split an MP3 recording in multiple
    parts based on different track marker patterns."""
-from curses.ascii import isalpha
 from pathlib import Path
 import os
 from collections import namedtuple, defaultdict
 from itertools import zip_longest
 from enum import Enum
-from pprint import pprint
 import re
 from typing import List
 from tqdm import tqdm
-from pydub import AudioSegment
 import subprocess
 import eyed3
 from datetime import datetime
@@ -25,6 +22,7 @@ Pattern = Enum('Pattern', ["IMPORTANT_THOUGHT",
                            "IMPORTANT_THOUGHT_LONG",
                            "IMPORTANT_CONVERSATION",
                            "CONFIDENTIAL",
+                           "PROJECT_IDEA",
                            ])
 
 # How many track mark to jump over when encoutering one of the patterns
@@ -32,10 +30,12 @@ PatternSkips = {"IMPORTANT_THOUGHT": 1,
                 "IMPORTANT_THOUGHT_LONG": 2,
                 "IMPORTANT_CONVERSATION": 4,
                 "CONFIDENTIAL": 5,
+                "PROJECT_IDEA": 5,
                 }
 
 PatternTime = {"IMPORTANT_THOUGHT": 60,
                "IMPORTANT_THOUGHT_LONG": 120,
+               "PROJECT_IDEA": 300,
                 }
 
 IMPORTANT_THOUGHT = 1
@@ -90,30 +90,33 @@ def get_windows(track_marks, interval=30):
     index = 0
     reset = True
     while index < len(track_marks):
-        if track_mark_counter <= 3:
+        if track_mark_counter <= 4:
             if reset:
                 reset = False
             else:
                 total_time += track_mark_interval_to_seconds(track_marks[index-1], track_marks[index])
             index += 1
 
-        if track_mark_counter >= 4:
+        # If we have reached the longest possible pattern
+        if track_mark_counter >= max(pattern.value for pattern in Pattern):
             windows.append(Pattern(track_mark_counter))
             # Depending on the amount of track markers detected in a row,
             # the next track marker may get skipped since it belongs to this group
-            if track_mark_counter > 2:
-                index += 1
+            # if track_mark_counter in [Pattern.CONFIDENTIAL, Pattern.IMPORTANT_CONVERSATION]:
+            #     index += 1
             track_mark_counter = 0
             total_time = 0
             reset = True
+        # Exceeded the maximum time interval, so we reached the next pattern or this is a CONVERSATION/CONFIDENTIAL
         elif total_time > interval:
-            # Move the index back once since we found a new group of track markers
-            index -= 1
+            # Move the index back once if this is part of a new group of track markers
+            if track_mark_counter not in [Pattern.CONFIDENTIAL.value, Pattern.IMPORTANT_CONVERSATION.value]:
+                index -= 1
             windows.append(Pattern(track_mark_counter))
             # Depending on the amount of track markers detected in a row,
             # the next track marker may get skipped since it belongs to this group
-            if track_mark_counter > 2:
-                index += 1
+            # if track_mark_counter in [Pattern.CONFIDENTIAL, Pattern.IMPORTANT_CONVERSATION]:
+            #     index += 1
             track_mark_counter = 0
             total_time = 0
             reset = True
@@ -139,17 +142,11 @@ def find_track_mark_patterns(track_marks, maxTimeInterval=30):
     # Rename the window and create the appropriate time interval for each segment
     time_intervals = []
     index = 0
-    previous_was_confidential = False
     for window in windows:
-        # If the previous part was confidential we don't want to be able to save it accidently as
-        # part of an important thought we had minutes later
-        if not previous_was_confidential:
-            minimum = 0
-        else:
-            minimum = track_mark_to_seconds(track_marks[index-1])
-            previous_was_confidential = False
+        # Avoid saving a part that overlaps with the previous segments
+        minimum = track_mark_to_seconds(track_marks[index-1]) if index > 0 else 0
 
-        if window == Pattern.IMPORTANT_THOUGHT or window == Pattern.IMPORTANT_THOUGHT_LONG:
+        if window == Pattern.IMPORTANT_THOUGHT or window == Pattern.IMPORTANT_THOUGHT_LONG or window == Pattern.PROJECT_IDEA:
             start = max(minimum, track_mark_to_seconds(track_marks[index]) - PatternTime[window.name])
             end = track_mark_to_seconds(track_marks[index])
             time_intervals.append(TimeInterval(start, end, Pattern(window)))
@@ -163,7 +160,6 @@ def find_track_mark_patterns(track_marks, maxTimeInterval=30):
             start = track_mark_to_seconds(track_marks[index + 3])
             end = track_mark_to_seconds(track_marks[index + 4])
             time_intervals.append(TimeInterval(start, end, Pattern(window)))
-            previous_was_confidential = True
         else:
             raise ValueError("Invalid number of track markers detected")
         # Skip N markers based on the pattern we just analyzed
@@ -292,7 +288,6 @@ def split_audio_file_into_segments(record, track_marks_patterns):
         if segment_type == Pattern.CONFIDENTIAL:
             continue
         index_of_types[segment_type] += 1
-        # Create new mp3 segment using ffmpeg subprocess
         timestamps = [track_mark_to_ffmpeg_timestamps(track_mark_seconds) for track_mark_seconds in track_marks_pattern[0:2]]
         # Create datetime formated name for the segment based on when that segment happened
         mp3_timestamp = datetime.strptime(record.mp3_file.name.split("_")[0], "%Y-%m-%d@%Hh%Mm%Ss").timestamp()
@@ -301,9 +296,13 @@ def split_audio_file_into_segments(record, track_marks_patterns):
         segment_datetime_formatted = segment_datetime.strftime("%Y-%m-%d@%Hh%Mm%Ss")
         segment_filename = segment_datetime_formatted + "_" + segment_type.name + "_" + str(index_of_types[segment_type]) + ".mp3"
         output_file_name = record.mp3_file.parent.joinpath(segment_type.name).joinpath(segment_filename)
+
         # Create output directory if it doesn't exist
         output_file_name.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["ffmpeg", "-i", record.mp3_file.resolve(), "-ss", timestamps[0], "-to", timestamps[1], "-acodec", "copy", output_file_name.resolve()], check=True)
+        # Create the new MP3 segment file
+        subprocess.run(["ffmpeg", "-i", record.mp3_file.resolve(), "-ss",
+                         timestamps[0], "-to", timestamps[1], "-acodec", "copy", output_file_name.resolve()],
+                         stdout=subprocess.DEVNULL, check=True)
 
 def track_mark_to_ffmpeg_timestamps(track_mark_seconds):
     """Converts a track marker to ffmpeg timestamps"""
@@ -313,35 +312,10 @@ def track_mark_to_ffmpeg_timestamps(track_mark_seconds):
     return f"{hours}:{minutes}:{seconds}"
 
 if __name__ == '__main__':
-    # Get all mp3 files in the current directory and tuple them with their according TMK file
-    # recordings = [Record(*recording) for recording in zip(list(Path.cwd().glob('*.mp3')), list(Path.cwd().glob('*.tmk')))]
-    #print(search_and_combine_recordings(Path.cwd()))
-    # for recording in recordings:
-        # pprint(find_track_mark_patterns([ "[00000:01.00]",
-        #                              "[00000:02.00]",
-        #                              "[00000:03.00]",
-        #                              "[00000:10.00]",
-        #                              "[00000:11.00]",
-        #                              "[00000:45.00]",
-        #                              "[00000:47.00]",
-        #                              "[00002:08.00]",
-        #                              "[00002:09.00]",
-        #                              "[00002:10.00]",
-        #                              "[00002:11.00]",
-        #                              "[00002:30.00]",
-        #                              "[00010:30.00]",
-        #                              "[00012:30.00]",
-        #                              "[00012:31.00]",
-        #                              "[00012:32.00]",
-        #                              "[00013:30.00]",]))
-
-    # mp3s = [Path.cwd().joinpath("sample4.mp3"), Path.cwd().joinpath("sample5.mp3")]
-    # concatenate_audio_files(mp3s, Path.cwd().joinpath("test_concatenated.mp3"))
-    # tmks = [Path.cwd().joinpath("test1.tmk"), Path.cwd().joinpath("test2.tmk")]
-    # concatenate_track_marker_files(tmks, Path.cwd().joinpath("test_concatenated.tmk"))
-
+    # Get all recordings in the folder
     recordings = search_and_combine_recordings(Path.cwd().joinpath("Real test").joinpath("23 Jul 2022"))
     for recording in recordings:
+        # Split all of them into segments
         split_audio_based_on_track_marks_pattern(recording)
         # Delete the merged mp3 file
         recording.mp3_file.unlink(missing_ok=True)

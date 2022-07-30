@@ -184,7 +184,7 @@ def concatenate_track_marker_files(record, output_path: Path, verbose=1):
     """This functions concatenates multiple track marker files in a single file"""
     if verbose > 0:
         print("Concatenating track marker files...")
-        mp3_track_pair_path = tqdm(zip_longest(record.mp3_files, record.tmk_files))
+        mp3_track_pair_path = tqdm(zip(record.mp3_files, record.tmk_files))
     # Create the output file
     total_time = 0
     first_file = True
@@ -282,7 +282,8 @@ def split_audio_based_on_track_marks_pattern(record):
 def split_audio_file_into_segments(record, track_marks_patterns):
     """Splits the mp3 file into segments based on track marker pattern"""
     # Split the mp3 file into segments
-    index_of_types = {Pattern.IMPORTANT_THOUGHT: 0, Pattern.IMPORTANT_THOUGHT_LONG: 0, Pattern.IMPORTANT_CONVERSATION: 0}
+    index_of_types = {pattern: 0 for pattern in list(Pattern)}
+    #index_of_types = {Pattern.IMPORTANT_THOUGHT: 0, Pattern.IMPORTANT_THOUGHT_LONG: 0, Pattern.IMPORTANT_CONVERSATION: 0}
     for track_marks_pattern in track_marks_patterns:
         segment_type = track_marks_pattern.type
         if segment_type == Pattern.CONFIDENTIAL:
@@ -316,7 +317,7 @@ def track_mark_to_ffmpeg_timestamps(track_mark_seconds):
 
 if __name__ == '__main__':
     # Get all recordings in the folder
-    recordings = search_and_combine_recordings(Path.cwd().joinpath("Real test").joinpath("23 Jul 2022"))
+    recordings = search_and_combine_recordings(Path(r'/Users/zach-mcc/MP3 Journal'))
     for recording in recordings:
         # Split all of them into segments
         split_audio_based_on_track_marks_pattern(recording)

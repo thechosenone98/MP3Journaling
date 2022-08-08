@@ -190,31 +190,57 @@ def concatenate_track_marker_files(record, output_path: Path, verbose=1):
     first_file = True
     with open(output_path, "w", encoding="utf-8-sig") as output_file:
         for mp3_file_path, track_markers_path in mp3_track_pair_path:
-            # Add the track marker from each file in the new track marker file
-            with open(track_markers_path, 'r', encoding="utf-8-sig") as track_markers_file:
-                if first_file:
-                    first_file = False
-                    output_file.write(track_markers_file.read())
-                else:
-                    # Add total time to every track marker of this file
-                    track_markers_file.seek(0)
-                    for track_marker_line in track_markers_file:
-                        # Check if last line of file (TX660 puts empty line at the end)
-                        if track_marker_line.strip() == '':
-                            break
+            # If placeholder file, skip but add mp3 time to total time (for mp3 with no track marker associated with them)
+            if track_markers_path.name != "placeholder.tmk":
+                # Add the track marker from each file in the new track marker file
+                with open(track_markers_path, 'r', encoding="utf-8-sig") as track_markers_file:
+                    if first_file:
+                        first_file = False
+                        output_file.write(track_markers_file.read())
+                    else:
+                        # Add total time to every track marker of this file
+                        track_markers_file.seek(0)
+                        for track_marker_line in track_markers_file:
+                            # Check if last line of file (TX660 puts empty line at the end)
+                            if track_marker_line.strip() == '':
+                                break
 
-                        # Create new track marker with added total time
-                        orig_track_mark_seconds = track_mark_to_seconds(track_marker_line.strip())
-                        new_track_mark_seconds = orig_track_mark_seconds + total_time
-                        new_track_mark_line = seconds_to_track_marker(new_track_mark_seconds)
-                        output_file.write(new_track_mark_line + "\n")
-
-                # Get the track lenght of the mp3 file and add it to the total time
-                track_length = eyed3.load(mp3_file_path).info.time_secs
-                total_time += track_length
+                            # Create new track marker with added total time
+                            orig_track_mark_seconds = track_mark_to_seconds(track_marker_line.strip())
+                            new_track_mark_seconds = orig_track_mark_seconds + total_time
+                            new_track_mark_line = seconds_to_track_marker(new_track_mark_seconds)
+                            output_file.write(new_track_mark_line + "\n")
+            if first_file:
+                first_file = False
+            # Get the track lenght of the mp3 file and add it to the total time
+            track_length = eyed3.load(mp3_file_path).info.time_secs
+            total_time += track_length
 
     if verbose > 0:
         print("Track marker files concatenated.")
+
+def insert_placeholder_files(record):
+    """This function inserts placeholder files in the record so that, when it comes time to concatenate them, the program knows that some mp3 have no
+       track marker associated with them and then know how to merge the tmk file while keeping a correct track of time."""
+    new_tmk_path_list = []
+    placeholder_path = record.mp3_files[0].parent.joinpath("placeholder.tmk")
+    index = 0
+    for tmk_file_path in record.tmk_files:
+        tmk_start_time = tmk_file_path.stat().st_birthtime
+        for mp3_file_path in record.mp3_files[index:]:
+            track_length = eyed3.load(mp3_file_path).info.time_secs
+            mp3_start_time = mp3_file_path.stat().st_birthtime
+            index += 1
+            if mp3_start_time + track_length < tmk_start_time:
+                new_tmk_path_list.append(placeholder_path)
+                continue
+            else:
+                new_tmk_path_list.append(tmk_file_path)
+                break
+
+    new_record = SegmentedRecord(record_name=record.record_name, mp3_files=record.mp3_files, tmk_files=new_tmk_path_list)
+    return new_record
+
 
 def search_and_combine_recordings(path: Path):
     """Returns a list containing all the recording in a folder.
@@ -239,6 +265,8 @@ def search_and_combine_recordings(path: Path):
         # (have to do it here to avoid having the name section in both branch)
         record.mp3_files.sort(key=lambda x: x.name)
         record.tmk_files.sort(key=lambda x: x.name)
+        # Insert placeholder tmk files if some mp3 have no track marker associated with them
+        record = insert_placeholder_files(record)
         # Get first mp3 creation date and time using pathlib
         first_mp3_creation_time = record.mp3_files[0].stat().st_birthtime
         creation_time_datetime = datetime.fromtimestamp(first_mp3_creation_time)
@@ -248,9 +276,6 @@ def search_and_combine_recordings(path: Path):
         new_tmk_path = path.joinpath(datetime_formatted + "_merged" + ".tmk")
         # Check if it is segmented or not
         if len(record.mp3_files) > 1:
-            # Sort the files so they are merged in the correct order
-            record.mp3_files.sort(key=lambda x: x.name)
-            record.tmk_files.sort(key=lambda x: x.name)
             concatenate_audio_files(record.mp3_files, new_mp3_path)
             concatenate_track_marker_files(record, new_tmk_path)
             # Delete old files
@@ -317,7 +342,7 @@ def track_mark_to_ffmpeg_timestamps(track_mark_seconds):
 
 if __name__ == '__main__':
     # Get all recordings in the folder
-    recordings = search_and_combine_recordings(Path(r'/Users/zach-mcc/MP3 Journal'))
+    recordings = search_and_combine_recordings(Path(r'/Users/zach-mcc/MP3 Journal/Testing Area'))
     for recording in recordings:
         # Split all of them into segments
         split_audio_based_on_track_marks_pattern(recording)

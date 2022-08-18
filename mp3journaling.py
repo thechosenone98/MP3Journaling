@@ -288,7 +288,10 @@ def search_and_combine_recordings(path: Path):
         else:
             # Rename the files to the record name
             record.mp3_files[0].rename(new_mp3_path)
-            record.tmk_files[0].rename(new_tmk_path)
+            if len(record.tmk_files) > 0:
+                record.tmk_files[0].rename(new_tmk_path)
+            else:
+                new_tmk_path = path.joinpath("EMPTY.tmk")
         # Add the new recording to the list
         final_records.append(Record(record_name=record.record_name,
                                     mp3_file=new_mp3_path,
@@ -298,7 +301,9 @@ def search_and_combine_recordings(path: Path):
 
 def split_audio_based_on_track_marks_pattern(record):
     """Splits the mp3 file into segments based on track marker pattern"""
-    # Get the track marks pattern
+    # Get the track marks pattern (check if they are any first)
+    if record.tmk_file.name == "EMPTY.tmk":
+        return
     track_marks = read_track_markers(record.tmk_file)
     track_marks_patterns = find_track_mark_patterns(track_marks)
     # Split the mp3 file into segments
@@ -342,7 +347,7 @@ def track_mark_to_ffmpeg_timestamps(track_mark_seconds):
 
 if __name__ == '__main__':
     # Get all recordings in the folder
-    recordings = search_and_combine_recordings(Path(r'/Users/zach-mcc/MP3 Journal/Testing Area'))
+    recordings = search_and_combine_recordings(Path(r'/Users/zach-mcc/MP3 Journal'))
     for recording in recordings:
         # Split all of them into segments
         split_audio_based_on_track_marks_pattern(recording)
